@@ -212,8 +212,12 @@ func (c *httpObfsClientConn) Write(p []byte) (int, error) {
 	request := fmt.Appendf(nil, "GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nContent-Length: %d\r\nSec-WebSocket-Key: %s\r\n\r\n",
 		uri, host, fingerprint.userAgent, len(p), fingerprint.key)
 	request = append(request, p...)
-	_, err := c.Conn.Write(request)
+	n, err := c.Conn.Write(request)
+	if n != len(request) && err == nil {
+		err = io.ErrShortWrite
+	}
 	if err != nil {
+		_ = c.Conn.Close()
 		return 0, E.Cause(err, "write http obfs request")
 	}
 	return len(p), nil
@@ -240,8 +244,12 @@ func (c *httpObfsServerConn) Write(p []byte) (int, error) {
 	fakeResponse := httpObfsServerResponse()
 	response := make([]byte, 0, len(fakeResponse)+len(p))
 	response = append(append(response, fakeResponse...), p...)
-	_, err := c.Conn.Write(response)
+	n, err := c.Conn.Write(response)
+	if n != len(response) && err == nil {
+		err = io.ErrShortWrite
+	}
 	if err != nil {
+		_ = c.Conn.Close()
 		return 0, E.Cause(err, "write http obfs response")
 	}
 	return len(p), nil
@@ -321,11 +329,7 @@ func (c *tlsObfsClientConn) Write(p []byte) (int, error) {
 		if len(p) == 0 {
 			return 0, nil
 		}
-		_, err := c.Conn.Write(c.appendRecords(nil, p))
-		if err != nil {
-			return 0, E.Cause(err, "write tls obfs payload")
-		}
-		return len(p), nil
+		return c.writePayload(p)
 	}
 	c.clientHelloSent = true
 	host := c.config.Host
@@ -381,8 +385,12 @@ func (c *tlsObfsClientConn) Write(p []byte) (int, error) {
 		0x00, 0x17, 0x00, 0x00,
 	)
 	out = c.appendRecords(out, p[len(payload):])
-	_, err := c.Conn.Write(out)
+	n, err := c.Conn.Write(out)
+	if n != len(out) && err == nil {
+		err = io.ErrShortWrite
+	}
 	if err != nil {
+		_ = c.Conn.Close()
 		return 0, E.Cause(err, "write tls obfs client hello")
 	}
 	return len(p), nil
@@ -434,11 +442,7 @@ func (c *tlsObfsServerConn) Write(p []byte) (int, error) {
 		if len(p) == 0 {
 			return 0, nil
 		}
-		_, err := c.Conn.Write(c.appendRecords(nil, p))
-		if err != nil {
-			return 0, E.Cause(err, "write tls obfs payload")
-		}
-		return len(p), nil
+		return c.writePayload(p)
 	}
 	c.serverHelloSent = true
 	payload := p
@@ -471,9 +475,37 @@ func (c *tlsObfsServerConn) Write(p []byte) (int, error) {
 	out = binary.BigEndian.AppendUint16(out, uint16(len(payload)))
 	out = append(out, payload...)
 	out = c.appendRecords(out, p[len(payload):])
-	_, err := c.Conn.Write(out)
+	n, err := c.Conn.Write(out)
+	if n != len(out) && err == nil {
+		err = io.ErrShortWrite
+	}
 	if err != nil {
+		_ = c.Conn.Close()
 		return 0, E.Cause(err, "write tls obfs server hello")
 	}
 	return len(p), nil
+}
+
+// writePayload maps wire progress back to application bytes, excluding each
+// TLS-like record header, before the Snell layer counts complete cipher records.
+func (r *tlsObfsRecords) writePayload(p []byte) (int, error) {
+	wire := r.appendRecords(nil, p)
+	sent, err := r.Conn.Write(wire)
+	if sent < 0 || sent > len(wire) {
+		sent, err = 0, io.ErrShortWrite
+	} else if sent != len(wire) && err == nil {
+		err = io.ErrShortWrite
+	}
+	remaining := len(p)
+	payloadN := 0
+	for offset := 0; remaining > 0; {
+		size := min(remaining, tlsObfsRecordPayloadLen)
+		payloadN += max(0, min(size, sent-offset-tlsObfsRecordHeaderLen))
+		offset += tlsObfsRecordHeaderLen + size
+		remaining -= size
+	}
+	if err != nil {
+		_ = r.Conn.Close()
+	}
+	return payloadN, err
 }

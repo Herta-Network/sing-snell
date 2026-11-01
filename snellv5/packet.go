@@ -6,15 +6,14 @@ import (
 	"io"
 	"net"
 	"net/netip"
-	"os"
 	"sync"
 
 	"github.com/metacubex/sing/common/buf"
-	"github.com/metacubex/sing/common/bufio"
 	E "github.com/metacubex/sing/common/exceptions"
 	M "github.com/metacubex/sing/common/metadata"
 	N "github.com/metacubex/sing/common/network"
 	snell "github.com/sagernet/sing-snell"
+	"github.com/sagernet/sing-snell/internal/packetbatch"
 	"github.com/sagernet/sing-snell/internal/reuse"
 )
 
@@ -25,6 +24,7 @@ const (
 
 type serverPacketConn struct {
 	net.Conn
+	packetWrites    packetbatch.State
 	service         *Service
 	reader          reuse.RecordReader
 	readWaitOptions N.ReadWaitOptions
@@ -131,78 +131,18 @@ func (c *serverPacketConn) readRequestPacketDestination(record *buf.Buffer) (M.S
 }
 
 func (c *serverPacketConn) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
-	c.writeAccess.Lock()
-	if c.writer == nil {
-		err := c.writeTunnelReply()
-		if err != nil {
-			c.writeAccess.Unlock()
-			buffer.Release()
-			return err
-		}
-	}
-	recordWriter := c.writer
-	c.writeAccess.Unlock()
-	header := buf.With(buffer.ExtendHeader(c.responseAddrLen(destination)))
-	err := snell.WriteUDPResponseAddress(header, destination)
-	if err != nil {
-		buffer.Release()
-		return err
-	}
-	if buffer.Len() > maxPayload {
-		buffer.Release()
-		return snell.ErrPayloadTooLarge
-	}
-	return recordWriter.WritePacketBuffer(buffer)
+	_, err := c.WritePacketBatchCount([]*buf.Buffer{buffer}, []M.Socksaddr{destination})
+	return err
 }
-
-func (c *serverPacketConn) CreatePacketBatchWriter() (N.PacketBatchWriter, bool) {
-	upstreamWriter, created := bufio.CreateVectorisedWriter(c.Conn)
-	if !created {
-		return nil, false
-	}
-	return &serverPacketBatchWriter{conn: c, upstream: upstreamWriter}, true
+func (c *serverPacketConn) CreatePacketBatchWriter() (N.PacketBatchWriter, bool) { return c, true }
+func (c *serverPacketConn) CreatePacketBatchWriterWithCount() (N.PacketBatchWriterWithCount, bool) {
+	return c, true
 }
-
-type serverPacketBatchWriter struct {
-	conn     *serverPacketConn
-	upstream N.VectorisedWriter
-
-	access sync.Mutex
-	writer N.VectorisedWriter
+func (c *serverPacketConn) WritePacketBatch(buffers []*buf.Buffer, destinations []M.Socksaddr) error {
+	_, err := c.WritePacketBatchCount(buffers, destinations)
+	return err
 }
-
-func (w *serverPacketBatchWriter) WritePacketBatch(buffers []*buf.Buffer, destinations []M.Socksaddr) error {
-	if len(buffers) == 0 || len(buffers) != len(destinations) {
-		buf.ReleaseMulti(buffers)
-		return os.ErrInvalid
-	}
-	w.access.Lock()
-	if w.writer == nil {
-		w.conn.writeAccess.Lock()
-		if w.conn.writer == nil {
-			err := w.conn.writeTunnelReply()
-			if err != nil {
-				w.conn.writeAccess.Unlock()
-				w.access.Unlock()
-				buf.ReleaseMulti(buffers)
-				return err
-			}
-		}
-		w.writer = w.conn.writer.CreatePacketVectorisedWriterFor(w.upstream)
-		w.conn.writeAccess.Unlock()
-	}
-	recordWriter := w.writer
-	w.access.Unlock()
-	for index, buffer := range buffers {
-		header := buf.With(buffer.ExtendHeader(w.conn.responseAddrLen(destinations[index])))
-		err := snell.WriteUDPResponseAddress(header, destinations[index])
-		if err != nil {
-			buf.ReleaseMulti(buffers)
-			return err
-		}
-	}
-	return recordWriter.WriteVectorised(buffers)
-}
+func (c *serverPacketConn) Close() error { return c.packetWrites.Close(c.Conn) }
 
 func (c *serverPacketConn) writeTunnelReply() error {
 	reply := [1]byte{snell.ReplyTunnel}
@@ -224,7 +164,7 @@ func (c *serverPacketConn) writeTunnelReply() error {
 		return err
 	}
 	nonce := make([]byte, snell.NonceLen)
-	recordWriter, err := newWriter(c.Conn, aead, nonce)
+	recordWriter, err := newWriter(packetbatch.StrictWriter{Writer: c.Conn}, aead, nonce)
 	if err != nil {
 		return err
 	}
@@ -281,9 +221,11 @@ func (c *serverPacketConn) WaitReadPacket() (*buf.Buffer, M.Socksaddr, error) {
 }
 
 var (
-	_ N.PacketConn              = (*serverPacketConn)(nil)
-	_ N.PacketReadWaiter        = (*serverPacketConn)(nil)
-	_ N.PacketBatchWriteCreator = (*serverPacketConn)(nil)
-	_ N.WriterWithMTU           = (*serverPacketConn)(nil)
-	_ N.PacketBatchWriter       = (*serverPacketBatchWriter)(nil)
+	_ N.PacketConn                   = (*serverPacketConn)(nil)
+	_ N.PacketReadWaiter             = (*serverPacketConn)(nil)
+	_ N.PacketBatchWriteCreator      = (*serverPacketConn)(nil)
+	_ N.WriterWithMTU                = (*serverPacketConn)(nil)
+	_ N.PacketBatchWriter            = (*serverPacketConn)(nil)
+	_ N.PacketBatchWriteCountCreator = (*serverPacketConn)(nil)
+	_ N.PacketBatchWriterWithCount   = (*serverPacketConn)(nil)
 )

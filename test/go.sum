@@ -1,7 +1,7 @@
 github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c h1:udKWzYgxTojEKWjV8V+WSxDXJ4NFATAsZjh8iIbsQIg=
 github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
-github.com/Herta-Network/sing v0.0.0-20261101090629-76a402191dfe h1:nTWOK/MIvxRSthYR+eJTVMl3DLvi9bvCqM9tBUcngSo=
-github.com/Herta-Network/sing v0.0.0-20261101090629-76a402191dfe/go.mod h1:ynXUNwUt4dfOFO805EWzw3ORmNWXoexziwn5XYCfsq8=
+github.com/Herta-Network/sing v0.0.0-20261101103341-a402b0b490ba h1:vAXE63qsaFJD4GAfa3l+6ChMuPHiqHp19ScWTYgozqM=
+github.com/Herta-Network/sing v0.0.0-20261101103341-a402b0b490ba/go.mod h1:ynXUNwUt4dfOFO805EWzw3ORmNWXoexziwn5XYCfsq8=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=

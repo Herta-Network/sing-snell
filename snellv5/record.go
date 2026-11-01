@@ -687,13 +687,29 @@ func (w *packetVectorisedWriter) WriteVectorised(buffers []*buf.Buffer) error {
 	recordWriter := w.writer
 	recordWriter.access.Lock()
 	defer recordWriter.access.Unlock()
+	now := time.Now().Unix()
+	limit := framePayloadStep
+	if recordWriter.lastFrameUnix == 0 {
+		limit = frameSize - firstRecordOverhead - recordWriter.initialPaddingLen
+	} else if now-recordWriter.lastFrameUnix < framePayloadResetInterval && recordWriter.framePayloadLen != 0 {
+		limit = recordWriter.framePayloadLen
+	}
+	for _, buffer := range buffers {
+		if buffer.IsEmpty() {
+			continue
+		}
+		if buffer.Len() > limit {
+			buf.ReleaseMulti(buffers)
+			return snell.ErrPayloadTooLarge
+		}
+		limit = min(limit+framePayloadStep, maxPayload)
+	}
 	for index, buffer := range buffers {
 		dataLen := buffer.Len()
 		if dataLen == 0 {
 			buffer.Release()
 			continue
 		}
-		now := time.Now().Unix()
 		var payloadLimit int
 		if recordWriter.lastFrameUnix == 0 {
 			payloadLimit = frameSize - firstRecordOverhead - recordWriter.initialPaddingLen

@@ -44,4 +44,4 @@ require (
 	gotest.tools/v3 v3.5.2 // indirect
 )
 
-replace github.com/metacubex/sing => github.com/Herta-Network/sing v0.0.0-20261101090629-76a402191dfe
+replace github.com/metacubex/sing => github.com/Herta-Network/sing v0.0.0-20261101103341-a402b0b490ba

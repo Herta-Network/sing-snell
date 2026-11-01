@@ -706,12 +706,23 @@ func (w *packetVectorisedWriter) WriteVectorised(buffers []*buf.Buffer) error {
 		buf.ReleaseMulti(buffers)
 		return err
 	}
+	nowUnix := time.Now().Unix()
+	limit := recordWriter.payloadLimitFor(nowUnix)
+	for _, buffer := range buffers {
+		if buffer.IsEmpty() {
+			continue
+		}
+		if buffer.Len() > limit {
+			buf.ReleaseMulti(buffers)
+			return snell.ErrPayloadTooLarge
+		}
+		limit = min(limit+frameSize-resetRecordOverhead, maxPayload)
+	}
 	for index, buffer := range buffers {
 		if buffer.IsEmpty() {
 			buffer.Release()
 			continue
 		}
-		nowUnix := time.Now().Unix()
 		payloadLimit := recordWriter.payloadLimitFor(nowUnix)
 		if payloadLimit <= 0 || payloadLimit > maxPayload {
 			panic("snell: invalid v4 payload limit")

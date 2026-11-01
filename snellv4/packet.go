@@ -3,16 +3,14 @@ package snellv4
 import (
 	"io"
 	"net"
-	"os"
 	"sync"
 
-	"github.com/metacubex/sing/common"
 	"github.com/metacubex/sing/common/buf"
-	"github.com/metacubex/sing/common/bufio"
 	E "github.com/metacubex/sing/common/exceptions"
 	M "github.com/metacubex/sing/common/metadata"
 	N "github.com/metacubex/sing/common/network"
 	snell "github.com/sagernet/sing-snell"
+	"github.com/sagernet/sing-snell/internal/packetbatch"
 	"github.com/sagernet/sing-snell/internal/reuse"
 )
 
@@ -23,7 +21,8 @@ const (
 
 type clientPacketConn struct {
 	net.Conn
-	client *Client
+	packetWrites packetbatch.State
+	client       *Client
 
 	writeAccess sync.Mutex
 	writer      *writer
@@ -50,7 +49,7 @@ func (c *clientPacketConn) writeRequest() error {
 		return nil
 	}
 	recordWriter := &writer{
-		upstream: c.Conn,
+		upstream: packetbatch.StrictWriter{Writer: c.Conn},
 		psk:      c.client.psk,
 	}
 	requestPayload := snell.Request{Command: snell.CommandUDP, ClientID: c.client.userKey}
@@ -93,80 +92,18 @@ func (c *clientPacketConn) readReply() (*reader, error) {
 }
 
 func (c *clientPacketConn) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
-	err := c.writeRequest()
-	if err != nil {
-		buffer.Release()
-		return err
-	}
-	_, err = c.readReply()
-	if err != nil {
-		buffer.Release()
-		return err
-	}
-	header := buf.With(buffer.ExtendHeader(1 + c.udpRequestAddrLen(destination)))
-	common.Must(header.WriteByte(snell.UDPCommandForward))
-	err = snell.WriteUDPRequestAddress(header, destination)
-	if err != nil {
-		buffer.Release()
-		return err
-	}
-	if buffer.Len() > maxPayload {
-		buffer.Release()
-		return snell.ErrPayloadTooLarge
-	}
-	return c.writer.WritePacketBuffer(buffer)
+	_, err := c.WritePacketBatchCount([]*buf.Buffer{buffer}, []M.Socksaddr{destination})
+	return err
 }
-
-func (c *clientPacketConn) CreatePacketBatchWriter() (N.PacketBatchWriter, bool) {
-	upstreamWriter, created := bufio.CreateVectorisedWriter(c.Conn)
-	if !created {
-		return nil, false
-	}
-	return &clientPacketBatchWriter{conn: c, upstream: upstreamWriter}, true
+func (c *clientPacketConn) CreatePacketBatchWriter() (N.PacketBatchWriter, bool) { return c, true }
+func (c *clientPacketConn) CreatePacketBatchWriterWithCount() (N.PacketBatchWriterWithCount, bool) {
+	return c, true
 }
-
-type clientPacketBatchWriter struct {
-	conn     *clientPacketConn
-	upstream N.VectorisedWriter
-
-	access sync.Mutex
-	writer N.VectorisedWriter
+func (c *clientPacketConn) WritePacketBatch(buffers []*buf.Buffer, destinations []M.Socksaddr) error {
+	_, err := c.WritePacketBatchCount(buffers, destinations)
+	return err
 }
-
-func (w *clientPacketBatchWriter) WritePacketBatch(buffers []*buf.Buffer, destinations []M.Socksaddr) error {
-	if len(buffers) == 0 || len(buffers) != len(destinations) {
-		buf.ReleaseMulti(buffers)
-		return os.ErrInvalid
-	}
-	w.access.Lock()
-	if w.writer == nil {
-		err := w.conn.writeRequest()
-		if err != nil {
-			w.access.Unlock()
-			buf.ReleaseMulti(buffers)
-			return err
-		}
-		_, err = w.conn.readReply()
-		if err != nil {
-			w.access.Unlock()
-			buf.ReleaseMulti(buffers)
-			return err
-		}
-		w.writer = w.conn.writer.CreatePacketVectorisedWriterFor(w.upstream)
-	}
-	recordWriter := w.writer
-	w.access.Unlock()
-	for index, buffer := range buffers {
-		header := buf.With(buffer.ExtendHeader(1 + w.conn.udpRequestAddrLen(destinations[index])))
-		common.Must(header.WriteByte(snell.UDPCommandForward))
-		err := snell.WriteUDPRequestAddress(header, destinations[index])
-		if err != nil {
-			buf.ReleaseMulti(buffers)
-			return err
-		}
-	}
-	return recordWriter.WriteVectorised(buffers)
-}
+func (c *clientPacketConn) Close() error { return c.packetWrites.Close(c.Conn) }
 
 func (c *clientPacketConn) ReadPacket(buffer *buf.Buffer) (M.Socksaddr, error) {
 	recordReader, err := c.readReply()
@@ -178,7 +115,7 @@ func (c *clientPacketConn) ReadPacket(buffer *buf.Buffer) (M.Socksaddr, error) {
 		if err != nil {
 			return M.Socksaddr{}, err
 		}
-		if record.Len() < 8 {
+		if record.Len() < 1+4+2 {
 			record.Release()
 			return M.Socksaddr{}, E.New("snell: udp response too short")
 		}
@@ -243,7 +180,7 @@ func (c *clientPacketConn) WaitReadPacket() (*buf.Buffer, M.Socksaddr, error) {
 		if err != nil {
 			return nil, M.Socksaddr{}, err
 		}
-		if record.Len() < 8 {
+		if record.Len() < 1+4+2 {
 			record.Release()
 			return nil, M.Socksaddr{}, E.New("snell: udp response too short")
 		}
@@ -264,9 +201,11 @@ func (c *clientPacketConn) WaitReadPacket() (*buf.Buffer, M.Socksaddr, error) {
 }
 
 var (
-	_ N.PacketConn              = (*clientPacketConn)(nil)
-	_ N.PacketReadWaiter        = (*clientPacketConn)(nil)
-	_ N.PacketBatchWriteCreator = (*clientPacketConn)(nil)
-	_ N.WriterWithMTU           = (*clientPacketConn)(nil)
-	_ N.PacketBatchWriter       = (*clientPacketBatchWriter)(nil)
+	_ N.PacketConn                   = (*clientPacketConn)(nil)
+	_ N.PacketReadWaiter             = (*clientPacketConn)(nil)
+	_ N.PacketBatchWriteCreator      = (*clientPacketConn)(nil)
+	_ N.WriterWithMTU                = (*clientPacketConn)(nil)
+	_ N.PacketBatchWriter            = (*clientPacketConn)(nil)
+	_ N.PacketBatchWriteCountCreator = (*clientPacketConn)(nil)
+	_ N.PacketBatchWriterWithCount   = (*clientPacketConn)(nil)
 )

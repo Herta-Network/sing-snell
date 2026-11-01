@@ -9,4 +9,4 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 )
 
-replace github.com/metacubex/sing => github.com/Herta-Network/sing v0.0.0-20261101090629-76a402191dfe
+replace github.com/metacubex/sing => github.com/Herta-Network/sing v0.0.0-20261101103341-a402b0b490ba
