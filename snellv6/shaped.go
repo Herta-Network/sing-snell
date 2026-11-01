@@ -308,7 +308,8 @@ func (w *packetVectorisedShapedWriter) WriteVectorised(buffers []*buf.Buffer) er
 	if err != nil {
 		return err
 	}
-	var records []*buf.Buffer
+	// The output never has more records than the consumed input batch.
+	records := buffers[:0]
 	defer func() {
 		buf.ReleaseMulti(records)
 	}()
@@ -356,6 +357,7 @@ func (w *shapedWriter) Upstream() any {
 
 type shapedReader struct {
 	baseReader
+	header  []byte
 	psk     []byte
 	profile *Profile
 	cipher  cipher.AEAD
@@ -386,28 +388,27 @@ func (r *shapedReader) read() (*buf.Buffer, error) {
 	}
 
 	prefixLen := r.profile.recordPrefixLen(r.seq)
-	head := buf.NewSize(prefixLen + snell.HeaderCipherLen)
-	_, err := head.ReadFullFrom(r.upstream, prefixLen+snell.HeaderCipherLen)
+	if r.header == nil {
+		r.header = make([]byte, r.profile.recordPrefixMax+snell.HeaderCipherLen)
+	}
+	head := r.header[:prefixLen+snell.HeaderCipherLen]
+	_, err := io.ReadFull(r.upstream, head)
 	if err != nil {
-		head.Release()
 		return nil, err
 	}
-	prefix := head.To(prefixLen)
-	headerCipher := head.Range(prefixLen, prefixLen+snell.HeaderCipherLen)
+	prefix := head[:prefixLen]
+	headerCipher := head[prefixLen:]
 	_, err = r.cipher.Open(headerCipher[:0], r.nonce, headerCipher, prefix)
 	if err != nil {
-		head.Release()
 		return nil, E.Cause(err, "open shaped header")
 	}
 	snell.IncreaseNonce(r.nonce)
 	if headerCipher[0] != snell.HeaderVersion {
-		head.Release()
 		return nil, E.Extend(snell.ErrBadVersion, headerCipher[0])
 	}
 	// Surge 6.7.0 (11520): FUN_100013abc: default-shaped reader ignores the two reserved header bytes.
 	paddingLen := int(binary.BigEndian.Uint16(headerCipher[3:5]))
 	payloadLen := int(binary.BigEndian.Uint16(headerCipher[5:7]))
-	head.Release()
 	seq := r.seq
 	r.seq++
 
@@ -423,34 +424,28 @@ func (r *shapedReader) read() (*buf.Buffer, error) {
 		return nil, io.EOF
 	}
 
-	var padding *buf.Buffer
+	var paddingBytes []byte
 	if paddingLen > 0 {
-		padding = buf.NewSize(paddingLen)
-		_, err = padding.ReadFullFrom(r.upstream, paddingLen)
+		paddingBytes = buf.Get(paddingLen)
+		if paddingBytes == nil {
+			paddingBytes = make([]byte, paddingLen)
+		} else {
+			defer buf.Put(paddingBytes)
+		}
+		_, err = io.ReadFull(r.upstream, paddingBytes)
 		if err != nil {
-			padding.Release()
 			return nil, err
 		}
 	}
 	body := r.readWaitOptions.NewBufferSize(payloadLen + snell.AEADTagLen)
 	_, err = body.ReadFullFrom(r.upstream, payloadLen+snell.AEADTagLen)
 	if err != nil {
-		if padding != nil {
-			padding.Release()
-		}
 		body.Release()
 		return nil, err
-	}
-	var paddingBytes []byte
-	if padding != nil {
-		paddingBytes = padding.Bytes()
 	}
 	payloadCipher := body.Bytes()
 	r.profile.mixPaddingPayload(seq, paddingBytes, payloadCipher)
 	_, err = r.cipher.Open(payloadCipher[:0], r.nonce, payloadCipher, paddingBytes)
-	if padding != nil {
-		padding.Release()
-	}
 	if err != nil {
 		body.Release()
 		return nil, E.Cause(err, "open shaped payload")

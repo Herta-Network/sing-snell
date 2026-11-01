@@ -139,6 +139,7 @@ func (r *baseReader) Upstream() any {
 
 type unshapedReader struct {
 	baseReader
+	header [snell.HeaderCipherLen]byte
 	cipher cipher.AEAD
 	nonce  []byte
 }
@@ -151,20 +152,17 @@ func newUnshapedReader(upstream io.Reader, aead cipher.AEAD, nonce []byte) *unsh
 }
 
 func (r *unshapedReader) read() (*buf.Buffer, error) {
-	headerCipher := buf.NewSize(snell.HeaderCipherLen)
-	_, err := headerCipher.ReadFullFrom(r.upstream, snell.HeaderCipherLen)
+	headerCipher := r.header[:]
+	_, err := io.ReadFull(r.upstream, headerCipher)
 	if err != nil {
-		headerCipher.Release()
 		return nil, err
 	}
-	_, err = r.cipher.Open(headerCipher.Index(0), r.nonce, headerCipher.Bytes(), nil)
+	_, err = r.cipher.Open(headerCipher[:0], r.nonce, headerCipher, nil)
 	if err != nil {
-		headerCipher.Release()
 		return nil, E.Cause(err, "open record header")
 	}
 	snell.IncreaseNonce(r.nonce)
-	paddingLen, payloadLen, err := parseHeader(headerCipher.To(snell.HeaderPlainLen))
-	headerCipher.Release()
+	paddingLen, payloadLen, err := parseHeader(headerCipher[:snell.HeaderPlainLen])
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +356,8 @@ func (w *packetVectorisedUnshapedWriter) WriteVectorised(buffers []*buf.Buffer) 
 	if err != nil {
 		return err
 	}
-	var records []*buf.Buffer
+	// The output never has more records than the consumed input batch.
+	records := buffers[:0]
 	defer func() {
 		buf.ReleaseMulti(records)
 	}()
@@ -409,6 +408,7 @@ func (w *unshapedWriter) Upstream() any {
 
 type rawReader struct {
 	baseReader
+	header [snell.HeaderPlainLen]byte
 }
 
 func newRawReader(upstream io.Reader) *rawReader {
@@ -419,14 +419,12 @@ func newRawReader(upstream io.Reader) *rawReader {
 }
 
 func (r *rawReader) read() (*buf.Buffer, error) {
-	header := buf.NewSize(snell.HeaderPlainLen)
-	_, err := header.ReadFullFrom(r.upstream, snell.HeaderPlainLen)
+	header := r.header[:]
+	_, err := io.ReadFull(r.upstream, header)
 	if err != nil {
-		header.Release()
 		return nil, err
 	}
-	paddingLen, payloadLen, err := parseHeader(header.Bytes())
-	header.Release()
+	paddingLen, payloadLen, err := parseHeader(header)
 	if err != nil {
 		return nil, err
 	}
@@ -584,7 +582,8 @@ func (w *packetVectorisedRawWriter) WriteVectorised(buffers []*buf.Buffer) error
 	if err != nil {
 		return err
 	}
-	var records []*buf.Buffer
+	// The output never has more records than the consumed input batch.
+	records := buffers[:0]
 	defer func() {
 		buf.ReleaseMulti(records)
 	}()

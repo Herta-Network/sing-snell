@@ -44,6 +44,7 @@ type reader struct {
 	cipher          cipher.AEAD
 	nonce           []byte
 	cache           *buf.Buffer
+	header          [snell.HeaderCipherLen]byte
 	readWaitOptions N.ReadWaitOptions
 }
 
@@ -52,57 +53,52 @@ func newReader(upstream io.Reader, aead cipher.AEAD, nonce []byte) *reader {
 }
 
 func (r *reader) ReadRecord() (*buf.Buffer, error) {
-	headerCipher := buf.NewSize(snell.HeaderCipherLen)
-	_, err := headerCipher.ReadFullFrom(r.upstream, snell.HeaderCipherLen)
+	headerCipher := r.header[:]
+	_, err := io.ReadFull(r.upstream, headerCipher)
 	if err != nil {
-		headerCipher.Release()
 		return nil, err
 	}
-	_, err = r.cipher.Open(headerCipher.Index(0), r.nonce, headerCipher.Bytes(), nil)
+	_, err = r.cipher.Open(headerCipher[:0], r.nonce, headerCipher, nil)
 	if err != nil {
-		headerCipher.Release()
 		return nil, E.Cause(err, "open record header")
 	}
 	snell.IncreaseNonce(r.nonce)
-	header := headerCipher.To(snell.HeaderPlainLen)
+	header := headerCipher[:snell.HeaderPlainLen]
 	if header[0] != snell.HeaderVersion {
-		headerCipher.Release()
 		return nil, E.Extend(snell.ErrBadVersion, header[0])
 	}
 	paddingLen := int(binary.BigEndian.Uint16(header[3:5]))
 	payloadLen := int(binary.BigEndian.Uint16(header[5:7]))
-	headerCipher.Release()
 
 	if payloadLen == 0 {
 		return nil, io.EOF
 	}
 
-	var padding *buf.Buffer
+	var paddingBytes []byte
 	if paddingLen > 0 {
-		padding = buf.NewSize(paddingLen)
-		_, err = padding.ReadFullFrom(r.upstream, paddingLen)
+		paddingBytes = buf.Get(paddingLen)
+		if paddingBytes == nil {
+			paddingBytes = make([]byte, paddingLen)
+		} else {
+			defer buf.Put(paddingBytes)
+		}
+		_, err = io.ReadFull(r.upstream, paddingBytes)
 		if err != nil {
-			padding.Release()
 			return nil, err
 		}
 	}
 	body := r.readWaitOptions.NewBufferSize(payloadLen + snell.AEADTagLen)
 	_, err = body.ReadFullFrom(r.upstream, payloadLen+snell.AEADTagLen)
 	if err != nil {
-		if padding != nil {
-			padding.Release()
-		}
 		body.Release()
 		return nil, err
 	}
-	if padding != nil {
-		paddingBytes := padding.Bytes()
+	if len(paddingBytes) > 0 {
 		payloadCipher := body.Bytes()
 		limit := min(len(payloadCipher), len(paddingBytes))
 		for index := 0; index < limit; index += 2 {
 			paddingBytes[index], payloadCipher[index] = payloadCipher[index], paddingBytes[index]
 		}
-		padding.Release()
 	}
 	payloadCipher := body.Bytes()
 	_, err = r.cipher.Open(payloadCipher[:0], r.nonce, payloadCipher, nil)
@@ -680,7 +676,8 @@ type packetVectorisedWriter struct {
 }
 
 func (w *packetVectorisedWriter) WriteVectorised(buffers []*buf.Buffer) error {
-	var records []*buf.Buffer
+	// The output never has more records than the consumed input batch.
+	records := buffers[:0]
 	defer func() {
 		buf.ReleaseMulti(records)
 	}()

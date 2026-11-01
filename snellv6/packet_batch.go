@@ -2,7 +2,6 @@ package snellv6
 
 import (
 	"errors"
-	"io"
 	"os"
 
 	"github.com/metacubex/sing/common/buf"
@@ -15,6 +14,10 @@ import (
 func (c *clientPacketConn) WritePacketBatchCount(buffers []*buf.Buffer, destinations []M.Socksaddr) (written int, err error) {
 	c.packetWrites.Access.Lock()
 	defer c.packetWrites.Access.Unlock()
+	return c.writePacketBatchCount(buffers, destinations)
+}
+
+func (c *clientPacketConn) writePacketBatchCount(buffers []*buf.Buffer, destinations []M.Socksaddr) (written int, err error) {
 	if err = c.packetWrites.Check(); err != nil {
 		buf.ReleaseMulti(buffers)
 		return 0, err
@@ -29,22 +32,19 @@ func (c *clientPacketConn) WritePacketBatchCount(buffers []*buf.Buffer, destinat
 			buf.ReleaseMulti(buffers)
 			return 0, os.ErrInvalid
 		}
-		header := buf.NewSize(maxUDPRequestHeaderLen)
+		header := c.packetWrites.Header()
 		_ = header.WriteByte(snell.UDPCommandForward)
 		err := snell.WriteUDPRequestAddress(header, destination)
 		if err != nil {
-			header.Release()
 			buf.ReleaseMulti(buffers)
 			return 0, err
 		}
 		if header.Len()+buffers[i].Len() > maxPayload {
-			header.Release()
 			buf.ReleaseMulti(buffers)
 			return 0, snell.ErrPayloadTooLarge
 		}
 		buffers[i] = options.Copy(buffers[i])
 		copy(buffers[i].ExtendHeader(header.Len()), header.Bytes())
-		header.Release()
 	}
 	if err := c.writeRequest(); err != nil {
 		buf.ReleaseMulti(buffers)
@@ -60,18 +60,14 @@ func (c *clientPacketConn) WritePacketBatchCount(buffers []*buf.Buffer, destinat
 			return written, err
 		}
 		end := min(start+packetbatch.MaxPackets, len(buffers))
-		sink := packetbatch.NewSink(c.Conn)
-		encoder := c.writer.CreatePacketVectorisedWriterFor(sink)
-		err = encoder.WriteVectorised(buffers[start:end])
-		if err == nil && sink.Written != end-start {
-			err = io.ErrShortWrite
-		}
-		written += sink.Written
+		n, called, encodeErr := c.packetWrites.Encode(c.Conn, c.writer, buffers[start:end])
+		err = encodeErr
+		written += n
 		if err != nil {
 			buf.ReleaseMulti(buffers[end:])
 			// Payload-window rejection is checked before consuming a nonce. Other
 			// failures may leave an encrypted prefix on the wire or advance state.
-			if sink.Called || !errors.Is(err, snell.ErrPayloadTooLarge) {
+			if called || !errors.Is(err, snell.ErrPayloadTooLarge) {
 				err = c.packetWrites.Fail(c.Conn, err)
 			}
 			return written, err
@@ -84,6 +80,10 @@ func (c *clientPacketConn) WritePacketBatchCount(buffers []*buf.Buffer, destinat
 func (c *serverPacketConn) WritePacketBatchCount(buffers []*buf.Buffer, destinations []M.Socksaddr) (written int, err error) {
 	c.packetWrites.Access.Lock()
 	defer c.packetWrites.Access.Unlock()
+	return c.writePacketBatchCount(buffers, destinations)
+}
+
+func (c *serverPacketConn) writePacketBatchCount(buffers []*buf.Buffer, destinations []M.Socksaddr) (written int, err error) {
 	if err = c.packetWrites.Check(); err != nil {
 		buf.ReleaseMulti(buffers)
 		return 0, err
@@ -98,22 +98,18 @@ func (c *serverPacketConn) WritePacketBatchCount(buffers []*buf.Buffer, destinat
 			buf.ReleaseMulti(buffers)
 			return 0, os.ErrInvalid
 		}
-		headerLen := c.responseAddrLen(destination)
-		header := buf.NewSize(headerLen)
+		header := c.packetWrites.Header()
 		err := snell.WriteUDPResponseAddress(header, destination)
 		if err != nil {
-			header.Release()
 			buf.ReleaseMulti(buffers)
 			return 0, err
 		}
 		if header.Len()+buffers[i].Len() > maxPayload {
-			header.Release()
 			buf.ReleaseMulti(buffers)
 			return 0, snell.ErrPayloadTooLarge
 		}
 		buffers[i] = options.Copy(buffers[i])
 		copy(buffers[i].ExtendHeader(header.Len()), header.Bytes())
-		header.Release()
 	}
 	c.writeAccess.Lock()
 	if c.writer == nil {
@@ -130,18 +126,14 @@ func (c *serverPacketConn) WritePacketBatchCount(buffers []*buf.Buffer, destinat
 			return written, err
 		}
 		end := min(start+packetbatch.MaxPackets, len(buffers))
-		sink := packetbatch.NewSink(c.Conn)
-		encoder := c.writer.CreatePacketVectorisedWriterFor(sink)
-		err = encoder.WriteVectorised(buffers[start:end])
-		if err == nil && sink.Written != end-start {
-			err = io.ErrShortWrite
-		}
-		written += sink.Written
+		n, called, encodeErr := c.packetWrites.Encode(c.Conn, c.writer, buffers[start:end])
+		err = encodeErr
+		written += n
 		if err != nil {
 			buf.ReleaseMulti(buffers[end:])
 			// Payload-window rejection is checked before consuming a nonce. Other
 			// failures may leave an encrypted prefix on the wire or advance state.
-			if sink.Called || !errors.Is(err, snell.ErrPayloadTooLarge) {
+			if called || !errors.Is(err, snell.ErrPayloadTooLarge) {
 				err = c.packetWrites.Fail(c.Conn, err)
 			}
 			return written, err

@@ -131,7 +131,11 @@ func (c *serverPacketConn) readRequestPacketDestination(record *buf.Buffer) (M.S
 }
 
 func (c *serverPacketConn) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
-	_, err := c.WritePacketBatchCount([]*buf.Buffer{buffer}, []M.Socksaddr{destination})
+	c.packetWrites.Access.Lock()
+	defer c.packetWrites.Access.Unlock()
+	buffers, destinations := c.packetWrites.SinglePacket(buffer, destination)
+	defer c.packetWrites.ClearSinglePacket()
+	_, err := c.writePacketBatchCount(buffers, destinations)
 	return err
 }
 func (c *serverPacketConn) CreatePacketBatchWriter() (N.PacketBatchWriter, bool) { return c, true }
