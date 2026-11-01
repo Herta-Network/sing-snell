@@ -2,9 +2,11 @@ module github.com/sagernet/sing-snell
 
 go 1.24.0
 
+require golang.org/x/crypto v0.42.0
+
 require (
-	github.com/sagernet/sing v0.8.12-0.20260727003324-d096a164bc7f
-	golang.org/x/crypto v0.42.0
+	github.com/metacubex/sing v0.5.8
+	golang.org/x/sys v0.41.0 // indirect
 )
 
-require golang.org/x/sys v0.41.0 // indirect
+replace github.com/metacubex/sing => github.com/Herta-Network/sing v0.0.0-20261101090629-76a402191dfe

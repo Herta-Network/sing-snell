@@ -4,9 +4,9 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/sagernet/sing/common/buf"
-	E "github.com/sagernet/sing/common/exceptions"
-	M "github.com/sagernet/sing/common/metadata"
+	"github.com/metacubex/sing/common/buf"
+	E "github.com/metacubex/sing/common/exceptions"
+	M "github.com/metacubex/sing/common/metadata"
 )
 
 var udpIPSerializer = M.NewSerializer(

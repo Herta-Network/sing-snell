@@ -9,13 +9,13 @@ import (
 	"os"
 	"sync"
 
+	"github.com/metacubex/sing/common/buf"
+	"github.com/metacubex/sing/common/bufio"
+	E "github.com/metacubex/sing/common/exceptions"
+	M "github.com/metacubex/sing/common/metadata"
+	N "github.com/metacubex/sing/common/network"
 	snell "github.com/sagernet/sing-snell"
 	"github.com/sagernet/sing-snell/internal/reuse"
-	"github.com/sagernet/sing/common/buf"
-	"github.com/sagernet/sing/common/bufio"
-	E "github.com/sagernet/sing/common/exceptions"
-	M "github.com/sagernet/sing/common/metadata"
-	N "github.com/sagernet/sing/common/network"
 )
 
 const (

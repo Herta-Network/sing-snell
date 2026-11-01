@@ -6,12 +6,12 @@ import (
 	"io"
 	"sync"
 
+	"github.com/metacubex/sing/common"
+	"github.com/metacubex/sing/common/buf"
+	"github.com/metacubex/sing/common/bufio"
+	E "github.com/metacubex/sing/common/exceptions"
+	N "github.com/metacubex/sing/common/network"
 	snell "github.com/sagernet/sing-snell"
-	"github.com/sagernet/sing/common"
-	"github.com/sagernet/sing/common/buf"
-	"github.com/sagernet/sing/common/bufio"
-	E "github.com/sagernet/sing/common/exceptions"
-	N "github.com/sagernet/sing/common/network"
 )
 
 // Surge 6.7.0 (11520): FUN_100015c54/FUN_1000156e0: non-default records require zero padding length.

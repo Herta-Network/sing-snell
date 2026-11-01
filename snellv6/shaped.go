@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/metacubex/sing/common/buf"
+	"github.com/metacubex/sing/common/bufio"
+	E "github.com/metacubex/sing/common/exceptions"
+	N "github.com/metacubex/sing/common/network"
 	snell "github.com/sagernet/sing-snell"
-	"github.com/sagernet/sing/common/buf"
-	"github.com/sagernet/sing/common/bufio"
-	E "github.com/sagernet/sing/common/exceptions"
-	N "github.com/sagernet/sing/common/network"
 )
 
 type shapedWriter struct {

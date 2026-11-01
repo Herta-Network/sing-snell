@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	M "github.com/metacubex/sing/common/metadata"
+	N "github.com/metacubex/sing/common/network"
 	snell "github.com/sagernet/sing-snell"
-	M "github.com/sagernet/sing/common/metadata"
-	N "github.com/sagernet/sing/common/network"
 
 	"github.com/stretchr/testify/require"
 )

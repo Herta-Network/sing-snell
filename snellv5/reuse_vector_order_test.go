@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/metacubex/sing/common/buf"
+	N "github.com/metacubex/sing/common/network"
 	"github.com/sagernet/sing-snell/internal/reuse"
-	"github.com/sagernet/sing/common/buf"
-	N "github.com/sagernet/sing/common/network"
 )
 
 func TestServerReuseVectorisedResponseCompletesBeforeCloseWrite(t *testing.T) { //nolint:paralleltest // Changes process-wide GOMAXPROCS.

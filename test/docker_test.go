@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sagernet/sing/common/debug"
-	F "github.com/sagernet/sing/common/format"
+	"github.com/metacubex/sing/common/debug"
+	F "github.com/metacubex/sing/common/format"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"

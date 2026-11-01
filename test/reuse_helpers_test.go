@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sagernet/sing/common/bufio"
-	M "github.com/sagernet/sing/common/metadata"
-	N "github.com/sagernet/sing/common/network"
+	"github.com/metacubex/sing/common/bufio"
+	M "github.com/metacubex/sing/common/metadata"
+	N "github.com/metacubex/sing/common/network"
 
 	"github.com/stretchr/testify/require"
 )

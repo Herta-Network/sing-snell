@@ -1,7 +1,7 @@
 package snellv6
 
 import (
-	E "github.com/sagernet/sing/common/exceptions"
+	E "github.com/metacubex/sing/common/exceptions"
 )
 
 type Mode int

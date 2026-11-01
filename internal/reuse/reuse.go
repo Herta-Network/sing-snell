@@ -6,11 +6,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/metacubex/sing/common/buf"
+	E "github.com/metacubex/sing/common/exceptions"
+	N "github.com/metacubex/sing/common/network"
+	"github.com/metacubex/sing/common/x/list"
 	snell "github.com/sagernet/sing-snell"
-	"github.com/sagernet/sing/common/buf"
-	E "github.com/sagernet/sing/common/exceptions"
-	N "github.com/sagernet/sing/common/network"
-	"github.com/sagernet/sing/common/x/list"
 )
 
 const (
