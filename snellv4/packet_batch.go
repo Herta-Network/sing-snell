@@ -32,7 +32,7 @@ func (c *clientPacketConn) writePacketBatchCount(buffers []*buf.Buffer, destinat
 			buf.ReleaseMulti(buffers)
 			return 0, os.ErrInvalid
 		}
-		header := c.packetWrites.Header()
+		header := packetbatch.NewHeader()
 		_ = header.WriteByte(snell.UDPCommandForward)
 		err := snell.WriteUDPRequestAddress(header, destination)
 		if err != nil {

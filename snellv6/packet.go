@@ -87,8 +87,7 @@ func (c *clientPacketConn) readReply() (reuse.RecordReader, error) {
 func (c *clientPacketConn) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
 	c.packetWrites.Access.Lock()
 	defer c.packetWrites.Access.Unlock()
-	buffers, destinations := c.packetWrites.SinglePacket(buffer, destination)
-	defer c.packetWrites.ClearSinglePacket()
+	buffers, destinations := []*buf.Buffer{buffer}, []M.Socksaddr{destination}
 	_, err := c.writePacketBatchCount(buffers, destinations)
 	return err
 }
@@ -233,8 +232,7 @@ func (c *serverPacketConn) ReadPacket(buffer *buf.Buffer) (M.Socksaddr, error) {
 func (c *serverPacketConn) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
 	c.packetWrites.Access.Lock()
 	defer c.packetWrites.Access.Unlock()
-	buffers, destinations := c.packetWrites.SinglePacket(buffer, destination)
-	defer c.packetWrites.ClearSinglePacket()
+	buffers, destinations := []*buf.Buffer{buffer}, []M.Socksaddr{destination}
 	_, err := c.writePacketBatchCount(buffers, destinations)
 	return err
 }
